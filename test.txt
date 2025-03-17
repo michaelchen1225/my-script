@@ -1,0 +1,9 @@
+hello world
+
+this is a quck sed script
+
+bye world
+
+hello to you.
+
+bye
