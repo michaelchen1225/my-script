@@ -20,6 +20,8 @@ if ! kubectl krew &> /dev/null; then
     exit 1
 fi
 
+kubectl krew update
+
 # install plugins
 for plugin in "${PLUGINS[@]}"; do
   kubectl krew install $plugin
