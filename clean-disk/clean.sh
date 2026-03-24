@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# =============================================================================
+# disk_cleanup.sh - Professional Linux Disk Maintenance Tool
+# =============================================================================
+
+set -uo pipefail
+
+# -- Global Variables ----------------------------------------------------------
+DRY_RUN=false
+OS_TYPE=""
+PKG_MGR=""
+DEFAULT_THRESHOLD=90
+
+# -- Logging Functions ---------------------------------------------------------
+log_info()  { echo -e "[\033[1;34mINFO\033[0m]  $*"; }
+log_ok()    { echo -e "[\033[1;32mOK\033[0m]    $*"; }
+log_warn()  { echo -e "[\033[1;33mWARN\033[0m]  $*"; }
+log_err()   { echo -e "[\033[1;31mERROR\033[0m] $*" >&2; }
+log_dry()   { echo -e "[\033[1;35mDRY\033[0m]   (Simulated) $*"; }
+
+run() {
+    if "$DRY_RUN"; then
+        log_dry "$*"
+    else
+        eval "$@"
+    fi
+}
+
+# -- OS Detection --------------------------------------------------------------
+detect_os() {
+    if [[ -f /etc/debian_version ]]; then
+        OS_TYPE="debian"; PKG_MGR="apt"
+    elif [[ -f /etc/redhat-release ]]; then
+        OS_TYPE="redhat"
+        command -v dnf &>/dev/null && PKG_MGR="dnf" || PKG_MGR="yum"
+    else
+        OS_TYPE="unknown"; PKG_MGR="unknown"
+    fi
+}
+
+# -- Core Logic Functions ------------------------------------------------------
+
+get_top_files() {
+    local target=$1
+    local count=$2
+    echo -e "\n--- Top $count Largest Files (>1MB) in $target ---"
+    echo "------------------------------------------------------------"
+    find "$target" -xdev -type f -size +1M -exec ls -lh {} + 2>/dev/null \
+        | sort -k5 -hr \
+        | head -n "$count" \
+        | awk '{printf "%-8s %s\n", $5, $9}'
+    echo "------------------------------------------------------------"
+}
+
+run_disk_analysis() {
+    echo -e "\n>>> Disk Usage Analysis"
+    read -p "Directory to scan [/]: " target; target="${target:-/}"
+    [[ ! -d "$target" ]] && { log_err "Directory not found."; return 1; }
+
+    read -p "Alert threshold % [$DEFAULT_THRESHOLD]: " thresh; thresh="${thresh:-$DEFAULT_THRESHOLD}"
+
+    local df_info=$(df -hP "$target" | tail -1)
+    local usage=$(echo "$df_info" | awk '{print $(NF-1)}' | tr -d '%')
+    
+    log_info "Target: $target | Usage: ${usage}% | Threshold: ${thresh}%"
+
+    if [[ "$usage" -ge "$thresh" ]]; then
+        log_warn "Threshold reached! Listing potential issues:"
+        echo -e "\n--- Top 10 Largest Directories ---"
+        du -xh --max-depth=1 "$target" 2>/dev/null | sort -hr | head -n 11
+        get_top_files "$target" 10
+    else
+        log_ok "Usage is normal. No detailed scan required."
+    fi
+}
+
+find_top_files() {
+    echo -e "\n>>> Top Files Explorer"
+    read -p "Directory [/]: " target; target="${target:-/}"
+    read -p "Number of files [10]: " count; count="${count:-10}"
+    get_top_files "$target" "$count"
+}
+
+# -- Cleanup Tasks -------------------------------------------------------------
+
+clean_temp_dirs() {
+    log_info "Checking Temporary Directories (/tmp and /var/tmp)..."
+    for dir in "/tmp" "/var/tmp"; do
+        log_info "Analyzing $dir..."
+        if [[ -n $(lsof +D "$dir" 2>/dev/null | grep -v "^COMMAND") ]]; then
+            log_warn "$dir has files in use. Skipping to avoid system instability."
+        else
+            run "rm -rf ${dir:?}/*"
+            log_ok "$dir has been cleared."
+        fi
+    done
+}
+
+clean_snap_old_versions() {
+    log_info "Cleaning Disabled Snap Revisions (Keeping active)..."
+    if command -v snap &>/dev/null; then
+        snap list --all | awk '/disabled/{print $1, $3}' | while read snapname revision; do
+            run "snap remove \"$snapname\" --revision=\"$revision\""
+        done
+        log_ok "Snap cleanup completed."
+    fi
+}
+
+clean_pkg_cache() {
+    log_info "Cleaning $PKG_MGR package cache & orphans..."
+    if [[ "$PKG_MGR" == "apt" ]]; then
+        run "apt-get clean"
+        run "apt-get autoremove --purge -y"
+    else
+        run "$PKG_MGR clean all"
+    fi
+    log_ok "Package cleanup completed."
+}
+
+clean_journal() {
+    log_info "Vacuuming Systemd Journal logs (older than 7d or >500MB)..."
+    if command -v journalctl &>/dev/null; then
+        run "journalctl --vacuum-time=7d --vacuum-size=500M"
+    fi
+}
+
+# -- Menu ----------------------------------------------------------------------
+show_menu() {
+    echo -e "\n\033[1;36m[ ANALYSIS ]\033[0m"
+    echo "  d) Disk usage Analysis (Usage % + Dirs + Files)"
+    echo "  f) Find Top N Largest Files"
+    echo -e "\033[1;36m[ CLEANUP  ]\033[0m"
+    echo "  1) $PKG_MGR Cache & Orphans        2) Systemd Journal Logs"
+    echo "  3) Temp Files (/tmp, /var/tmp)     4) Docker System Prune"
+    [[ "$OS_TYPE" == "debian" ]] && echo "  5) Remove Old Snap Versions"
+    echo -e "\033[1;36m[ ACTION   ]\033[0m"
+    echo "  a) Run All Cleanups (1-4)          q) Quit"
+    echo -ne "\n\033[1;33mAction >\033[0m "
+}
+
+main() {
+    local args=()
+    for arg in "$@"; do [[ "$arg" == "--dry-run" ]] && DRY_RUN=true || args+=("$arg"); done
+    detect_os
+    
+    if [[ ${#args[@]} -gt 0 ]]; then
+        for item in "${args[@]}"; do
+            case "$item" in
+                1) clean_pkg_cache ;; 2) clean_journal ;; 3) clean_temp_dirs ;; 
+                4) run "docker system prune -f" ;; 5) clean_snap_old_versions ;;
+                a) clean_pkg_cache; clean_journal; clean_temp_dirs; run "docker system prune -f" ;;
+                d) run_disk_analysis ;; f) find_top_files ;;
+            esac
+        done
+    else
+        clear
+        echo -e "\033[1;32mDisk Management Utility Initialized.\033[0m (Mode: $( "$DRY_RUN" && echo "DRY-RUN" || echo "LIVE" ))"
+        while true; do
+            show_menu
+            read -r choice
+            case "$choice" in
+                q|Q) echo "Exiting."; exit 0 ;;
+                d|D) run_disk_analysis ;;
+                f|F) find_top_files ;;
+                a|A) clean_pkg_cache; clean_journal; clean_temp_dirs; run "docker system prune -f" ;;
+                1) clean_pkg_cache ;;
+                2) clean_journal ;;
+                3) clean_temp_dirs ;;
+                4) run "docker system prune -f" ;;
+                5) clean_snap_old_versions ;;
+                *) log_err "Invalid selection: $choice" ;;
+            esac
+        done
+    fi
+}
+
+main "$@"
