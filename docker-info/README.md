@@ -7,7 +7,7 @@ curl -O https://raw.githubusercontent.com/michaelchen1225/my-script/refs/heads/m
 
 chmod +x docker-info.sh
 
-cp docker-inspect.sh /usr/local/bin/docker-info.sh
+cp docker-info.sh /usr/local/bin/docker-info.sh
 ```
 
 ---
