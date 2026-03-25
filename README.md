@@ -45,3 +45,13 @@ chmod +x renew_cert.sh
 
 cp cert-renew.sh /usr/local/bin/renew_cert.sh
 ```
+
+### [docker info](./docker-info)
+
+```bash
+curl -O https://raw.githubusercontent.com/michaelchen1225/my-script/refs/heads/master/docker-info/docker-info.sh
+
+chmod +x docker-info.sh
+
+cp docker-inspect.sh /usr/local/bin/docker-info.sh
+```
