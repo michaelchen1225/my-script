@@ -91,7 +91,7 @@ view_running_containers() {
   divider
 
   local data
-  data=$(docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>&1)
+  data=$(docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1)
 
   if [[ -z "$data" ]]; then
     printf "${YELLOW}  No running containers.${RESET}\n"
@@ -100,11 +100,11 @@ view_running_containers() {
     count=$(echo "$data" | wc -l)
     summary "$count running container(s)"
     divider
-    printf "${BOLD}  %-22s %-28s %-24s %s${RESET}\n" "NAME" "IMAGE" "STATUS" "PORTS"
+    printf "${BOLD}  %-28s %-26s %s${RESET}\n" "NAME" "STATUS" "PORTS"
     divider
-    while IFS=$'\t' read -r name image status ports; do
-      printf "  %s %s " "$(trunc "$name" 22)" "$(trunc "$image" 28)"
-      color_status "$status" 24
+    while IFS=$'\t' read -r name status ports; do
+      printf "  %s " "$(trunc "$name" 28)"
+      color_status "$status" 26
       printf " %s\n" "$(shorten_ports "$ports")"
     done <<< "$data"
   fi
