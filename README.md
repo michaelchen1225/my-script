@@ -46,6 +46,18 @@ chmod +x renew_cert.sh
 cp cert-renew.sh /usr/local/bin/renew_cert.sh
 ```
 
+### [docker dashboard](./docker-dashboard/)
+
+```bash
+curl -O https://raw.githubusercontent.com/michaelchen1225/my-script/refs/heads/master/docker-dashboard/docker-dashboard.sh
+
+chmod +x docker-dashboard.sh
+
+cp docker-dashboard.sh /usr/local/bin/docker-dashboard.sh
+```
+
+
+
 ### [docker info](./docker-info)
 
 ```bash
