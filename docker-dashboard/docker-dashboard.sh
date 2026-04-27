@@ -9,13 +9,12 @@ GREEN="\033[32m"
 YELLOW="\033[33m"
 CYAN="\033[36m"
 WHITE="\033[37m"
-BG_HEADER="\033[44m"   # blue background for section headers
+BG_HEADER="\033[44m"
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 header() {
   local title="$1"
-  local width=60
-  printf "\n${BG_HEADER}${BOLD}${WHITE}  %-${width}s${RESET}\n" "$title"
+  printf "\n${BG_HEADER}${BOLD}${WHITE}  %-60s${RESET}\n" "$title"
 }
 
 tip() {
@@ -39,14 +38,13 @@ color_status() {
   local padded
   padded=$(printf "%-${width}s" "$status")
   case "${status,,}" in
-    *up*)      printf "${GREEN}%s${RESET}" "$padded" ;;
-    *paused*)  printf "${YELLOW}%s${RESET}" "$padded" ;;
-    *exited*|*dead*|*removing*) printf "${RED}%s${RESET}" "$padded" ;;
-    *)         printf "${WHITE}%s${RESET}" "$padded" ;;
+    *up*)                         printf "${GREEN}%s${RESET}"  "$padded" ;;
+    *paused*)                     printf "${YELLOW}%s${RESET}" "$padded" ;;
+    *exited*|*dead*|*removing*)   printf "${RED}%s${RESET}"    "$padded" ;;
+    *)                            printf "${WHITE}%s${RESET}"  "$padded" ;;
   esac
 }
 
-# Truncate to max chars, pad with spaces so columns stay aligned
 trunc() {
   local str="$1" max="$2"
   if (( ${#str} > max )); then
@@ -56,7 +54,6 @@ trunc() {
   fi
 }
 
-# Keep only host->container port pairs, drop IPv6 duplicates and bare exposed ports
 shorten_ports() {
   local ports="$1"
   [[ -z "$ports" ]] && { printf "-"; return; }
@@ -68,43 +65,160 @@ shorten_ports() {
   [[ -z "$result" ]] && printf "-" || printf "%s" "$result"
 }
 
+# ─── Container action sub-menu ────────────────────────────────────────────────
+container_actions() {
+  local name="$1" image="$2" status="$3" ports="$4"
+  local is_running=false
+  [[ "${status,,}" == *"up"* ]] && is_running=true
+
+  while true; do
+    printf "\n"
+    printf "${CYAN}${BOLD}  ┌─ %s ${RESET}\n" "$name"
+    printf "${CYAN}  │${RESET}  Image:  %s\n" "$image"
+    printf "${CYAN}  │${RESET}  Status: "
+    color_status "$status"
+    printf "\n"
+    if $is_running; then
+      printf "${CYAN}  │${RESET}  Ports:  %s\n" "$(shorten_ports "$ports")"
+    fi
+    printf "${CYAN}${BOLD}  └──────────────────────────────────────────${RESET}\n"
+    printf "\n"
+
+    if $is_running; then
+      printf "  ${BOLD}[l]${RESET}  Tail logs (last 100)   ${BOLD}[f]${RESET}  Follow logs\n"
+      printf "  ${BOLD}[s]${RESET}  Live stats             ${BOLD}[i]${RESET}  Inspect\n"
+      printf "  ${BOLD}[e]${RESET}  Exec shell\n"
+      printf "\n"
+      printf "  ${BOLD}[t]${RESET}  Stop                   ${BOLD}[r]${RESET}  Restart\n"
+    else
+      printf "  ${BOLD}[l]${RESET}  Tail logs (last 100)   ${BOLD}[i]${RESET}  Inspect\n"
+      printf "\n"
+      printf "  ${BOLD}[s]${RESET}  Start                  ${BOLD}[d]${RESET}  Remove\n"
+    fi
+
+    printf "\n  ${BOLD}[b]${RESET}  Back\n"
+    printf "\n  Choose: "
+    read -rsn1 action
+    echo
+
+    case "$action" in
+      l)
+        docker logs --tail=100 "$name" 2>&1 | less -R
+        ;;
+      f)
+        $is_running && docker logs -f --tail=20 "$name"
+        ;;
+      s)
+        if $is_running; then
+          docker stats "$name"
+        else
+          printf "${YELLOW}  Start container '${name}'? (y/N): ${RESET}"
+          read -r confirm
+          [[ "$confirm" =~ ^[Yy]$ ]] && docker start "$name" && return
+        fi
+        ;;
+      i)
+        docker inspect "$name" 2>&1 | less -R
+        ;;
+      e)
+        if $is_running; then
+          docker exec -it "$name" bash 2>/dev/null || docker exec -it "$name" sh
+        fi
+        ;;
+      t)
+        if $is_running; then
+          printf "${YELLOW}  Stop '${name}'? (y/N): ${RESET}"
+          read -r confirm
+          if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            docker stop "$name" && printf "${GREEN}  Stopped.${RESET}\n" && sleep 1 && return
+          fi
+        fi
+        ;;
+      r)
+        if $is_running; then
+          printf "${YELLOW}  Restart '${name}'? (y/N): ${RESET}"
+          read -r confirm
+          if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            docker restart "$name" && printf "${GREEN}  Restarted.${RESET}\n" && sleep 1 && return
+          fi
+        fi
+        ;;
+      d)
+        if ! $is_running; then
+          printf "${RED}  Remove container '${name}'? This cannot be undone. (y/N): ${RESET}"
+          read -r confirm
+          if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            docker rm "$name" && printf "${GREEN}  Removed.${RESET}\n" && sleep 1 && return
+          fi
+        fi
+        ;;
+      b|'') return ;;
+    esac
+  done
+}
+
 # ─── Views ────────────────────────────────────────────────────────────────────
 
 view_running_containers() {
-  header "Running Containers  (docker ps)"
-  divider
+  local selecting=true
+  while $selecting; do
+    selecting=false
+    header "Running Containers  (docker ps)"
+    divider
 
-  local data
-  data=$(docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>&1)
+    local data
+    data=$(docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>&1)
 
-  if [[ -z "$data" ]]; then
-    printf "${YELLOW}  No running containers.${RESET}\n"
-  else
+    if [[ -z "$data" ]]; then
+      printf "${YELLOW}  No running containers.${RESET}\n"
+      return
+    fi
+
     local count
     count=$(echo "$data" | wc -l)
     summary "$count running container(s)"
     divider
-    printf "${BOLD}  %-22s %-22s %-22s %s${RESET}\n" "NAME" "IMAGE" "STATUS" "PORTS"
+    printf "${BOLD}  %-4s %-20s %-22s %-22s %s${RESET}\n" "#" "NAME" "IMAGE" "STATUS" "PORTS"
     divider
+
+    local i=1
+    local -a _names _images _statuses _ports
     while IFS=$'\t' read -r name image status ports; do
-      printf "  %s %s " "$(trunc "$name" 22)" "$(trunc "$image" 22)"
+      printf "  ${CYAN}${BOLD}[%-2s]${RESET} %s %s " "$i" "$(trunc "$name" 20)" "$(trunc "$image" 22)"
       color_status "$status" 22
       printf " %s\n" "$(shorten_ports "$ports")"
+      _names+=("$name"); _images+=("$image"); _statuses+=("$status"); _ports+=("$ports")
+      (( i++ ))
     done <<< "$data"
-  fi
+
+    printf "\n${YELLOW}  Select container [1-${count}] or ENTER to skip: ${RESET}"
+    read -r sel
+    if [[ "$sel" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= count )); then
+      local idx=$(( sel - 1 ))
+      clear
+      container_actions "${_names[$idx]}" "${_images[$idx]}" "${_statuses[$idx]}" "${_ports[$idx]}"
+      clear
+      selecting=true
+    fi
+  done
 }
 
 view_all_containers() {
-  header "All Containers  (docker ps -a)"
-  divider
+  local selecting=true
+  while $selecting; do
+    selecting=false
+    header "All Containers  (docker ps -a)"
+    divider
 
-  local data
-  data=$(docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}' 2>&1)
+    local data
+    data=$(docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>&1)
 
-  if [[ -z "$data" ]]; then
-    printf "${YELLOW}  No containers found.${RESET}\n"
-  else
-    local running exited other total
+    if [[ -z "$data" ]]; then
+      printf "${YELLOW}  No containers found.${RESET}\n"
+      return
+    fi
+
+    local running exited total other
     running=$(docker ps -q | wc -l)
     exited=$(docker ps -a --filter status=exited -q | wc -l)
     total=$(docker ps -aq | wc -l)
@@ -112,17 +226,31 @@ view_all_containers() {
 
     summary "Total: $total  |  Running: $running  |  Exited: $exited  |  Other: $other"
     divider
-    printf "${BOLD}  %-22s %-28s %s${RESET}\n" "NAME" "IMAGE" "STATUS"
+    printf "${BOLD}  %-4s %-20s %-22s %s${RESET}\n" "#" "NAME" "IMAGE" "STATUS"
     divider
-    while IFS=$'\t' read -r name image status; do
-      printf "  %s %s " "$(trunc "$name" 22)" "$(trunc "$image" 28)"
+
+    local i=1
+    local -a _names _images _statuses _ports
+    while IFS=$'\t' read -r name image status ports; do
+      printf "  ${CYAN}${BOLD}[%-2s]${RESET} %s %s " "$i" "$(trunc "$name" 20)" "$(trunc "$image" 22)"
       color_status "$status"
       echo
+      _names+=("$name"); _images+=("$image"); _statuses+=("$status"); _ports+=("$ports")
+      (( i++ ))
     done <<< "$data"
-  fi
+
+    printf "\n${YELLOW}  Select container [1-${total}] or ENTER to skip: ${RESET}"
+    read -r sel
+    if [[ "$sel" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= total )); then
+      local idx=$(( sel - 1 ))
+      clear
+      container_actions "${_names[$idx]}" "${_images[$idx]}" "${_statuses[$idx]}" "${_ports[$idx]}"
+      clear
+      selecting=true
+    fi
+  done
 
   echo
-  tip "docker start <name>          — start a stopped container"
   tip "docker rm \$(docker ps -aq --filter status=exited)  — remove all exited containers"
 }
 
@@ -188,7 +316,7 @@ for r in rows:
   fi
 
   echo
-  tip "docker compose -p <name> ps  — list containers in a project"
+  tip "docker compose -p <name> ps       — list containers in a project"
   tip "docker compose -p <name> logs --tail=50  — view recent logs"
 }
 
@@ -240,8 +368,8 @@ view_networks() {
   fi
 
   echo
-  tip "docker network inspect <name>  — inspect a network"
-  tip "docker network prune           — remove all unused networks"
+  tip "docker network inspect <name>    — inspect a network"
+  tip "docker network prune             — remove all unused networks"
 }
 
 view_system_df() {
@@ -268,15 +396,14 @@ run_view() {
         clear; $fn
         ;;
       [1-9])
-        # watch mode: refresh every $key seconds, any keypress exits
         while true; do
           printf "\n${DIM}  Watching every ${key}s — press any key to stop${RESET}  "
-          read -rsn1 -t "$key" && break   # key pressed → exit watch
+          read -rsn1 -t "$key" && break
           clear; $fn
         done
         clear; $fn
         ;;
-      '')   # Enter → back to menu
+      '')
         return
         ;;
       *)
@@ -293,8 +420,7 @@ show_menu() {
   printf "  ╔══════════════════════════════════════════╗\n"
   printf "  ║         Docker Dashboard                 ║\n"
   printf "  ╚══════════════════════════════════════════╝\n"
-  printf "${RESET}"
-  printf "\n"
+  printf "${RESET}\n"
   printf "  ${BOLD}[1]${RESET}  Running containers\n"
   printf "  ${BOLD}[2]${RESET}  All containers\n"
   printf "  ${BOLD}[3]${RESET}  Images\n"
@@ -304,20 +430,19 @@ show_menu() {
   printf "  ${BOLD}[7]${RESET}  System disk usage\n"
   printf "\n"
   printf "  ${BOLD}[q]${RESET}  Quit\n"
-  printf "\n"
-  printf "  Choose: "
+  printf "\n  Choose: "
 }
 
-# ─── Direct invocation support ────────────────────────────────────────────────
+# ─── Direct invocation ────────────────────────────────────────────────────────
 if [[ -n "$1" ]]; then
   case "$1" in
-    ps)      run_view view_running_containers ;;
-    ps-a)    run_view view_all_containers ;;
-    images)  run_view view_images ;;
-    compose) run_view view_compose ;;
-    volumes) run_view view_volumes ;;
-    networks)run_view view_networks ;;
-    df)      run_view view_system_df ;;
+    ps)       run_view view_running_containers ;;
+    ps-a)     run_view view_all_containers ;;
+    images)   run_view view_images ;;
+    compose)  run_view view_compose ;;
+    volumes)  run_view view_volumes ;;
+    networks) run_view view_networks ;;
+    df)       run_view view_system_df ;;
     *)
       printf "Usage: %s [ps|ps-a|images|compose|volumes|networks|df]\n" "$(basename "$0")"
       exit 1
