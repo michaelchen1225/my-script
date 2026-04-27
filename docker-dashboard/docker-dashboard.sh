@@ -25,7 +25,7 @@ divider() {
 }
 
 bottom_bar() {
-  printf "\n${DIM}  [ENTER] back   [r] refresh   [1-9] auto-refresh every N seconds${RESET}  "
+  printf "\n${DIM}  [ENTER] menu   [r] refresh   [1-9] auto-refresh every N seconds${RESET}  "
 }
 
 color_status() {
@@ -164,9 +164,7 @@ container_actions() {
 # ─── Views ────────────────────────────────────────────────────────────────────
 
 view_running_containers() {
-  local selecting=true
-  while $selecting; do
-    selecting=false
+  while true; do
     header "Running Containers  (docker ps)"
     divider
 
@@ -175,7 +173,7 @@ view_running_containers() {
 
     if [[ -z "$data" ]]; then
       printf "${YELLOW}  No running containers.${RESET}\n"
-      return
+      printf "\n${DIM}  ENTER to go to menu...${RESET}"; read -r; return
     fi
 
     local count
@@ -195,15 +193,22 @@ view_running_containers() {
       (( i++ ))
     done <<< "$data"
 
-    printf "\n${YELLOW}  Select container [1-${count}] or ENTER to skip: ${RESET}"
+    printf "\n${YELLOW}  Select [1-${count}]   [r] refresh   ENTER menu: ${RESET}"
     read -r sel
-    if [[ "$sel" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= count )); then
-      local idx=$(( sel - 1 ))
-      clear
-      container_actions "${_names[$idx]}" "${_images[$idx]}" "${_statuses[$idx]}" "${_ports[$idx]}"
-      clear
-      selecting=true
-    fi
+    case "$sel" in
+      r|R)
+        clear; continue ;;
+      '')
+        return ;;
+      *)
+        if [[ "$sel" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= count )); then
+          local idx=$(( sel - 1 ))
+          clear
+          container_actions "${_names[$idx]}" "${_images[$idx]}" "${_statuses[$idx]}" "${_ports[$idx]}"
+          clear
+        fi
+        continue ;;
+    esac
   done
 }
 
@@ -532,7 +537,7 @@ show_menu() {
 # ─── Direct invocation ────────────────────────────────────────────────────────
 if [[ -n "$1" ]]; then
   case "$1" in
-    ps)       run_view view_running_containers ;;
+    ps)       clear; view_running_containers ;;
     ps-a)     run_view view_all_containers ;;
     images)   run_view view_images ;;
     compose)  run_view view_compose ;;
@@ -548,13 +553,13 @@ if [[ -n "$1" ]]; then
 fi
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
-run_view view_running_containers
+clear; view_running_containers
 while true; do
   show_menu
   read -rsn1 choice
   echo
   case "$choice" in
-    1) run_view view_running_containers ;;
+    1) clear; view_running_containers ;;
     2) run_view view_all_containers ;;
     3) run_view view_images ;;
     4) run_view view_compose ;;
