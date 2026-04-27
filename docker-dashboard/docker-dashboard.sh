@@ -121,7 +121,13 @@ container_actions() {
       f) $is_running && docker logs -f --tail=20 "$name" ;;
       s)
         if $is_running; then
-          docker stats "$name"
+          while true; do
+            clear
+            docker stats --no-stream "$name"
+            printf "\n${DIM}  Auto-refreshing every 3s — press any key to refresh now, [q] to go back${RESET}  "
+            read -rsn1 -t 3 key
+            [[ "$key" == "q" || "$key" == "Q" ]] && break
+          done
         else
           printf "${YELLOW}  Start '${name}'? (y/N): ${RESET}"
           read -r c; [[ "$c" =~ ^[Yy]$ ]] && docker start "$name" && return
