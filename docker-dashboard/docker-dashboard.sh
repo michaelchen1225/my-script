@@ -81,7 +81,8 @@ prune_confirm() {
 
 prune_section() {
   divider
-  printf "\n  ${BOLD}Prune: %s${RESET}  " "$1"
+  printf "\n  ${BOLD}Prune:${RESET}  "
+  printf "%b  " "$1"
 }
 
 # ─── Container action sub-menu ────────────────────────────────────────────────
