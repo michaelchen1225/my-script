@@ -30,24 +30,8 @@ divider() {
   printf "${DIM}%s${RESET}\n" "  $(printf '─%.0s' {1..62})"
 }
 
-press_any_key() {
-  printf "\n${DIM}  Press any key to return to menu...${RESET}"
-  read -rsn1
-  echo
-}
-
-ask_refresh() {
-  local interval=5
-  printf "\n${YELLOW}  Auto-refresh? (y/N): ${RESET}"
-  read -r ans
-  if [[ "$ans" =~ ^[Yy]$ ]]; then
-    printf "${YELLOW}  Interval in seconds [5]: ${RESET}"
-    read -r input
-    [[ "$input" =~ ^[0-9]+$ ]] && interval="$input"
-    echo "$interval"
-  else
-    echo "0"
-  fi
+bottom_bar() {
+  printf "\n${DIM}  [ENTER] back   [r] refresh   [1-9] auto-refresh every N seconds${RESET}  "
 }
 
 color_status() {
@@ -91,7 +75,7 @@ view_running_containers() {
   divider
 
   local data
-  data=$(docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1)
+  data=$(docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>&1)
 
   if [[ -z "$data" ]]; then
     printf "${YELLOW}  No running containers.${RESET}\n"
@@ -100,11 +84,11 @@ view_running_containers() {
     count=$(echo "$data" | wc -l)
     summary "$count running container(s)"
     divider
-    printf "${BOLD}  %-28s %-26s %s${RESET}\n" "NAME" "STATUS" "PORTS"
+    printf "${BOLD}  %-22s %-22s %-22s %s${RESET}\n" "NAME" "IMAGE" "STATUS" "PORTS"
     divider
-    while IFS=$'\t' read -r name status ports; do
-      printf "  %s " "$(trunc "$name" 28)"
-      color_status "$status" 26
+    while IFS=$'\t' read -r name image status ports; do
+      printf "  %s %s " "$(trunc "$name" 22)" "$(trunc "$image" 22)"
+      color_status "$status" 22
       printf " %s\n" "$(shorten_ports "$ports")"
     done <<< "$data"
   fi
@@ -270,25 +254,36 @@ view_system_df() {
   tip "docker system prune -a       — remove all unused data including unused images"
 }
 
-# ─── Run a view with optional auto-refresh ────────────────────────────────────
+# ─── Run a view with bottom-bar controls ─────────────────────────────────────
 run_view() {
   local fn="$1"
   clear
   $fn
 
-  local interval
-  interval=$(ask_refresh)
-
-  if [[ "$interval" -gt 0 ]]; then
-    while true; do
-      sleep "$interval"
-      clear
-      $fn
-      printf "\n${DIM}  Auto-refreshing every ${interval}s — Ctrl+C to stop${RESET}\n"
-    done
-  else
-    press_any_key
-  fi
+  while true; do
+    bottom_bar
+    read -rsn1 key
+    case "$key" in
+      r|R)
+        clear; $fn
+        ;;
+      [1-9])
+        # watch mode: refresh every $key seconds, any keypress exits
+        while true; do
+          printf "\n${DIM}  Watching every ${key}s — press any key to stop${RESET}  "
+          read -rsn1 -t "$key" && break   # key pressed → exit watch
+          clear; $fn
+        done
+        clear; $fn
+        ;;
+      '')   # Enter → back to menu
+        return
+        ;;
+      *)
+        return
+        ;;
+    esac
+  done
 }
 
 # ─── Menu ─────────────────────────────────────────────────────────────────────
