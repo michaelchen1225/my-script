@@ -13,8 +13,7 @@ BG_HEADER="\033[44m"
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 header() {
-  local title="$1"
-  printf "\n${BG_HEADER}${BOLD}${WHITE}  %-60s${RESET}\n" "$title"
+  printf "\n${BG_HEADER}${BOLD}${WHITE}  %-60s${RESET}\n" "$1"
 }
 
 tip() {
@@ -38,10 +37,10 @@ color_status() {
   local padded
   padded=$(printf "%-${width}s" "$status")
   case "${status,,}" in
-    *up*)                         printf "${GREEN}%s${RESET}"  "$padded" ;;
-    *paused*)                     printf "${YELLOW}%s${RESET}" "$padded" ;;
-    *exited*|*dead*|*removing*)   printf "${RED}%s${RESET}"    "$padded" ;;
-    *)                            printf "${WHITE}%s${RESET}"  "$padded" ;;
+    *up*)                       printf "${GREEN}%s${RESET}"  "$padded" ;;
+    *paused*)                   printf "${YELLOW}%s${RESET}" "$padded" ;;
+    *exited*|*dead*|*removing*) printf "${RED}%s${RESET}"    "$padded" ;;
+    *)                          printf "${WHITE}%s${RESET}"  "$padded" ;;
   esac
 }
 
@@ -63,6 +62,26 @@ shorten_ports() {
     | sort -u \
     | paste -sd ',' -)
   [[ -z "$result" ]] && printf "-" || printf "%s" "$result"
+}
+
+# Show what will be removed, then ask for confirmation before running a prune
+prune_confirm() {
+  local label="$1"; shift
+  printf "${YELLOW}  Run: ${BOLD}docker %s${RESET}${YELLOW} ? (y/N): ${RESET}" "$label"
+  read -r confirm
+  if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    echo
+    "$@" 2>&1
+    printf "\n${GREEN}  Done.${RESET}\n"
+    sleep 1
+    return 0
+  fi
+  return 1
+}
+
+prune_section() {
+  divider
+  printf "\n  ${BOLD}Prune: %s${RESET}  " "$1"
 }
 
 # ─── Container action sub-menu ────────────────────────────────────────────────
@@ -102,24 +121,17 @@ container_actions() {
     echo
 
     case "$action" in
-      l)
-        docker logs --tail=100 "$name" 2>&1 | less -R
-        ;;
-      f)
-        $is_running && docker logs -f --tail=20 "$name"
-        ;;
+      l) docker logs --tail=100 "$name" 2>&1 | less -R ;;
+      f) $is_running && docker logs -f --tail=20 "$name" ;;
       s)
         if $is_running; then
           docker stats "$name"
         else
-          printf "${YELLOW}  Start container '${name}'? (y/N): ${RESET}"
-          read -r confirm
-          [[ "$confirm" =~ ^[Yy]$ ]] && docker start "$name" && return
+          printf "${YELLOW}  Start '${name}'? (y/N): ${RESET}"
+          read -r c; [[ "$c" =~ ^[Yy]$ ]] && docker start "$name" && return
         fi
         ;;
-      i)
-        docker inspect "$name" 2>&1 | less -R
-        ;;
+      i) docker inspect "$name" 2>&1 | less -R ;;
       e)
         if $is_running; then
           docker exec -it "$name" bash 2>/dev/null || docker exec -it "$name" sh
@@ -128,28 +140,25 @@ container_actions() {
       t)
         if $is_running; then
           printf "${YELLOW}  Stop '${name}'? (y/N): ${RESET}"
-          read -r confirm
-          if [[ "$confirm" =~ ^[Yy]$ ]]; then
-            docker stop "$name" && printf "${GREEN}  Stopped.${RESET}\n" && sleep 1 && return
-          fi
+          read -r c
+          [[ "$c" =~ ^[Yy]$ ]] && docker stop "$name" \
+            && printf "${GREEN}  Stopped.${RESET}\n" && sleep 1 && return
         fi
         ;;
       r)
         if $is_running; then
           printf "${YELLOW}  Restart '${name}'? (y/N): ${RESET}"
-          read -r confirm
-          if [[ "$confirm" =~ ^[Yy]$ ]]; then
-            docker restart "$name" && printf "${GREEN}  Restarted.${RESET}\n" && sleep 1 && return
-          fi
+          read -r c
+          [[ "$c" =~ ^[Yy]$ ]] && docker restart "$name" \
+            && printf "${GREEN}  Restarted.${RESET}\n" && sleep 1 && return
         fi
         ;;
       d)
         if ! $is_running; then
-          printf "${RED}  Remove container '${name}'? This cannot be undone. (y/N): ${RESET}"
-          read -r confirm
-          if [[ "$confirm" =~ ^[Yy]$ ]]; then
-            docker rm "$name" && printf "${GREEN}  Removed.${RESET}\n" && sleep 1 && return
-          fi
+          printf "${RED}  Remove '${name}'? Cannot be undone. (y/N): ${RESET}"
+          read -r c
+          [[ "$c" =~ ^[Yy]$ ]] && docker rm "$name" \
+            && printf "${GREEN}  Removed.${RESET}\n" && sleep 1 && return
         fi
         ;;
       b|'') return ;;
@@ -239,46 +248,86 @@ view_all_containers() {
       (( i++ ))
     done <<< "$data"
 
-    printf "\n${YELLOW}  Select container [1-${total}] or ENTER to skip: ${RESET}"
-    read -r sel
-    if [[ "$sel" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= total )); then
-      local idx=$(( sel - 1 ))
+    # ── Prune stopped containers ──────────────────────────────────────────────
+    prune_section "${BOLD}[p]${RESET} remove all stopped containers   ENTER to skip"
+    read -rsn1 pk
+    echo
+    if [[ "$pk" == "p" || "$pk" == "P" ]]; then
+      local stopped
+      stopped=$(docker ps -a --filter status=exited --filter status=dead \
+        --filter status=created --format "    {{.Names}}  ({{.Status}})" 2>/dev/null)
+      if [[ -z "$stopped" ]]; then
+        printf "\n${DIM}  No stopped containers.${RESET}\n"; sleep 1
+      else
+        printf "\n${BOLD}  Stopped containers that will be removed:${RESET}\n"
+        echo "$stopped"
+        echo
+        prune_confirm "container prune -f" docker container prune -f
+      fi
+      selecting=true
+    elif [[ "$pk" =~ ^[0-9]+$ ]] && (( pk >= 1 && pk <= total )); then
+      local idx=$(( pk - 1 ))
       clear
       container_actions "${_names[$idx]}" "${_images[$idx]}" "${_statuses[$idx]}" "${_ports[$idx]}"
       clear
       selecting=true
     fi
   done
-
-  echo
-  tip "docker rm \$(docker ps -aq --filter status=exited)  — remove all exited containers"
 }
 
 view_images() {
-  header "Images  (docker image ls)"
-  divider
-
-  local data
-  data=$(docker image ls --format '{{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}' 2>&1)
-
-  if [[ -z "$data" ]]; then
-    printf "${YELLOW}  No images found.${RESET}\n"
-  else
-    local total dangling
-    total=$(docker image ls -q | wc -l)
-    dangling=$(docker image ls -f dangling=true -q | wc -l)
-    summary "Total: $total image(s)  |  Dangling: $dangling"
+  local redisplay=true
+  while $redisplay; do
+    redisplay=false
+    header "Images  (docker image ls)"
     divider
-    printf "${BOLD}  %-35s %-20s %-10s %s${RESET}\n" "REPOSITORY" "TAG" "SIZE" "CREATED"
-    divider
-    while IFS=$'\t' read -r repo tag size created; do
-      printf "  %s %s %-10s %s\n" "$(trunc "$repo" 35)" "$(trunc "$tag" 20)" "$size" "$created"
-    done <<< "$data"
-  fi
 
-  echo
-  tip "docker image prune -f        — remove dangling images"
-  tip "docker image prune -a        — remove all unused images"
+    local data
+    data=$(docker image ls --format '{{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}' 2>&1)
+
+    if [[ -z "$data" ]]; then
+      printf "${YELLOW}  No images found.${RESET}\n"
+    else
+      local total dangling
+      total=$(docker image ls -q | wc -l)
+      dangling=$(docker image ls -f dangling=true -q | wc -l)
+      summary "Total: $total image(s)  |  Dangling: $dangling"
+      divider
+      printf "${BOLD}  %-35s %-20s %-10s %s${RESET}\n" "REPOSITORY" "TAG" "SIZE" "CREATED"
+      divider
+      while IFS=$'\t' read -r repo tag size created; do
+        printf "  %s %s %-10s %s\n" "$(trunc "$repo" 35)" "$(trunc "$tag" 20)" "$size" "$created"
+      done <<< "$data"
+    fi
+
+    # ── Prune ─────────────────────────────────────────────────────────────────
+    prune_section "${BOLD}[d]${RESET} dangling only   ${BOLD}[a]${RESET} all unused   ENTER to skip"
+    read -rsn1 pk
+    echo
+    case "$pk" in
+      d)
+        local dlist
+        dlist=$(docker images -f dangling=true \
+          --format "    <none>:<none>  {{.Size}}  ({{.CreatedSince}})" 2>/dev/null)
+        if [[ -z "$dlist" ]]; then
+          printf "\n${DIM}  No dangling images.${RESET}\n"; sleep 1
+        else
+          printf "\n${BOLD}  Dangling images that will be removed:${RESET}\n"
+          echo "$dlist"
+          echo
+          prune_confirm "image prune -f" docker image prune -f
+        fi
+        redisplay=true
+        ;;
+      a)
+        printf "\n${BOLD}  All images present (only those unused by any container will be removed):${RESET}\n"
+        docker images --format "    {{.Repository}}:{{.Tag}}  {{.Size}}" 2>/dev/null
+        echo
+        prune_confirm "image prune -a -f" docker image prune -a -f
+        redisplay=true
+        ;;
+    esac
+  done
 }
 
 view_compose() {
@@ -316,70 +365,136 @@ for r in rows:
   fi
 
   echo
-  tip "docker compose -p <name> ps       — list containers in a project"
-  tip "docker compose -p <name> logs --tail=50  — view recent logs"
+  tip "docker compose -p <name> ps            — list containers in a project"
+  tip "docker compose -p <name> logs --tail=50 — view recent logs"
 }
 
 view_volumes() {
-  header "Volumes  (docker volume ls)"
-  divider
-
-  local data
-  data=$(docker volume ls --format '{{.Driver}}\t{{.Name}}' 2>&1)
-
-  if [[ -z "$data" ]]; then
-    printf "${YELLOW}  No volumes found.${RESET}\n"
-  else
-    local total
-    total=$(docker volume ls -q | wc -l)
-    summary "$total volume(s)"
+  local redisplay=true
+  while $redisplay; do
+    redisplay=false
+    header "Volumes  (docker volume ls)"
     divider
-    printf "${BOLD}  %-15s %s${RESET}\n" "DRIVER" "NAME"
-    divider
-    while IFS=$'\t' read -r driver name; do
-      printf "  %-15s %s\n" "$driver" "$name"
-    done <<< "$data"
-  fi
 
-  echo
-  tip "docker volume rm <name>      — remove a volume"
-  tip "docker volume prune          — remove all unused volumes"
+    local data
+    data=$(docker volume ls --format '{{.Driver}}\t{{.Name}}' 2>&1)
+
+    if [[ -z "$data" ]]; then
+      printf "${YELLOW}  No volumes found.${RESET}\n"
+    else
+      local total
+      total=$(docker volume ls -q | wc -l)
+      summary "$total volume(s)"
+      divider
+      printf "${BOLD}  %-15s %s${RESET}\n" "DRIVER" "NAME"
+      divider
+      while IFS=$'\t' read -r driver name; do
+        printf "  %-15s %s\n" "$driver" "$name"
+      done <<< "$data"
+    fi
+
+    # ── Prune ─────────────────────────────────────────────────────────────────
+    prune_section "${BOLD}[p]${RESET} all unused volumes   ENTER to skip"
+    read -rsn1 pk
+    echo
+    if [[ "$pk" == "p" || "$pk" == "P" ]]; then
+      local vlist
+      vlist=$(docker volume ls -f dangling=true --format "    {{.Name}}" 2>/dev/null)
+      if [[ -z "$vlist" ]]; then
+        printf "\n${DIM}  No unused volumes.${RESET}\n"; sleep 1
+      else
+        printf "\n${BOLD}  Unused volumes that will be removed:${RESET}\n"
+        echo "$vlist"
+        echo
+        prune_confirm "volume prune -f" docker volume prune -f
+      fi
+      redisplay=true
+    fi
+  done
 }
 
 view_networks() {
-  header "Networks  (docker network ls)"
-  divider
-
-  local data
-  data=$(docker network ls --format '{{.Name}}\t{{.Driver}}\t{{.Scope}}' 2>&1)
-
-  if [[ -z "$data" ]]; then
-    printf "${YELLOW}  No networks found.${RESET}\n"
-  else
-    local total
-    total=$(docker network ls -q | wc -l)
-    summary "$total network(s)"
+  local redisplay=true
+  while $redisplay; do
+    redisplay=false
+    header "Networks  (docker network ls)"
     divider
-    printf "${BOLD}  %-30s %-15s %s${RESET}\n" "NAME" "DRIVER" "SCOPE"
-    divider
-    while IFS=$'\t' read -r name driver scope; do
-      printf "  %-30s %-15s %s\n" "$name" "$driver" "$scope"
-    done <<< "$data"
-  fi
 
-  echo
-  tip "docker network inspect <name>    — inspect a network"
-  tip "docker network prune             — remove all unused networks"
+    local data
+    data=$(docker network ls --format '{{.Name}}\t{{.Driver}}\t{{.Scope}}' 2>&1)
+
+    if [[ -z "$data" ]]; then
+      printf "${YELLOW}  No networks found.${RESET}\n"
+    else
+      local total
+      total=$(docker network ls -q | wc -l)
+      summary "$total network(s)"
+      divider
+      printf "${BOLD}  %-30s %-15s %s${RESET}\n" "NAME" "DRIVER" "SCOPE"
+      divider
+      while IFS=$'\t' read -r name driver scope; do
+        printf "  %-30s %-15s %s\n" "$name" "$driver" "$scope"
+      done <<< "$data"
+    fi
+
+    # ── Prune ─────────────────────────────────────────────────────────────────
+    prune_section "${BOLD}[p]${RESET} unused custom networks   ENTER to skip"
+    read -rsn1 pk
+    echo
+    if [[ "$pk" == "p" || "$pk" == "P" ]]; then
+      local nlist
+      nlist=$(docker network ls --filter type=custom \
+        --format "    {{.Name}}  ({{.Driver}})" 2>/dev/null)
+      if [[ -z "$nlist" ]]; then
+        printf "\n${DIM}  No custom networks to prune.${RESET}\n"; sleep 1
+      else
+        printf "\n${BOLD}  Custom networks not used by any container (will be removed):${RESET}\n"
+        echo "$nlist"
+        echo
+        prune_confirm "network prune -f" docker network prune -f
+      fi
+      redisplay=true
+    fi
+  done
 }
 
 view_system_df() {
-  header "System Disk Usage  (docker system df)"
-  divider
-  echo
-  docker system df
-  echo
-  tip "docker system prune          — remove all unused data"
-  tip "docker system prune -a       — remove all unused data including unused images"
+  local redisplay=true
+  while $redisplay; do
+    redisplay=false
+    header "System Disk Usage  (docker system df)"
+    divider
+    echo
+    docker system df
+    echo
+
+    # ── Prune ─────────────────────────────────────────────────────────────────
+    prune_section "${BOLD}[p]${RESET} system prune   ${BOLD}[a]${RESET} + all unused images   ENTER to skip"
+    read -rsn1 pk
+    echo
+    case "$pk" in
+      p)
+        printf "\n${BOLD}  docker system prune will remove:${RESET}\n"
+        printf "    • Stopped containers\n"
+        printf "    • Unused networks\n"
+        printf "    • Dangling images\n"
+        printf "    • Dangling build cache\n"
+        echo
+        prune_confirm "system prune -f" docker system prune -f
+        redisplay=true
+        ;;
+      a)
+        printf "\n${BOLD}  docker system prune -a will remove:${RESET}\n"
+        printf "    • Stopped containers\n"
+        printf "    • Unused networks\n"
+        printf "    • ${RED}ALL unused images${RESET} (not just dangling)\n"
+        printf "    • Build cache\n"
+        echo
+        prune_confirm "system prune -a -f" docker system prune -a -f
+        redisplay=true
+        ;;
+    esac
+  done
 }
 
 # ─── Run a view with bottom-bar controls ─────────────────────────────────────
@@ -403,12 +518,8 @@ run_view() {
         done
         clear; $fn
         ;;
-      '')
-        return
-        ;;
-      *)
-        return
-        ;;
+      '') return ;;
+      *)  return ;;
     esac
   done
 }

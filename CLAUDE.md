@@ -58,6 +58,9 @@ my-script/
 
 ### README.md must be updated for every new script
 
+**update the README.md of the script, if the script has chnaged (e.g new features, new options, etc)**
+
+
 **Whenever a new script is added to this repository, you MUST update the root `README.md`** to include a new section for it. The section must follow this format:
 
 ```markdown
