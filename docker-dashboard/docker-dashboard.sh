@@ -16,10 +16,6 @@ header() {
   printf "\n${BG_HEADER}${BOLD}${WHITE}  %-60s${RESET}\n" "$1"
 }
 
-tip() {
-  printf "${DIM}  Tip: %s${RESET}\n" "$1"
-}
-
 summary() {
   printf "${CYAN}${BOLD}  → %s${RESET}\n" "$1"
 }
@@ -64,10 +60,9 @@ shorten_ports() {
   [[ -z "$result" ]] && printf "-" || printf "%s" "$result"
 }
 
-# Show what will be removed, then ask for confirmation before running a prune
 prune_confirm() {
   local label="$1"; shift
-  printf "${YELLOW}  Run: ${BOLD}docker %s${RESET}${YELLOW} ? (y/N): ${RESET}" "$label"
+  printf "${YELLOW}  Run: docker %s ? (y/N): ${RESET}" "$label"
   read -r confirm
   if [[ "$confirm" =~ ^[Yy]$ ]]; then
     echo
@@ -81,7 +76,7 @@ prune_confirm() {
 
 prune_section() {
   divider
-  printf "\n  ${BOLD}Prune:${RESET}  %s  " "$1"
+  printf "\n  Prune:  %s  " "$1"
 }
 
 # ─── Container action sub-menu ────────────────────────────────────────────────
@@ -248,8 +243,7 @@ view_all_containers() {
       (( i++ ))
     done <<< "$data"
 
-    # ── Prune stopped containers ──────────────────────────────────────────────
-    prune_section "${BOLD}[p]${RESET} remove all stopped containers   ENTER to skip"
+    prune_section "[p] remove all stopped containers   ENTER to skip"
     read -rsn1 pk
     echo
     if [[ "$pk" == "p" || "$pk" == "P" ]]; then
@@ -300,8 +294,7 @@ view_images() {
       done <<< "$data"
     fi
 
-    # ── Prune ─────────────────────────────────────────────────────────────────
-    prune_section "${BOLD}[d]${RESET} dangling only   ${BOLD}[a]${RESET} all unused   ENTER to skip"
+    prune_section "[d] dangling only   [a] all unused   ENTER to skip"
     read -rsn1 pk
     echo
     case "$pk" in
@@ -363,10 +356,6 @@ for r in rows:
       printf " %s\n" "$config"
     done <<< "$data"
   fi
-
-  echo
-  tip "docker compose -p <name> ps            — list containers in a project"
-  tip "docker compose -p <name> logs --tail=50 — view recent logs"
 }
 
 view_volumes() {
@@ -393,8 +382,7 @@ view_volumes() {
       done <<< "$data"
     fi
 
-    # ── Prune ─────────────────────────────────────────────────────────────────
-    prune_section "${BOLD}[p]${RESET} all unused volumes   ENTER to skip"
+    prune_section "[p] all unused volumes   ENTER to skip"
     read -rsn1 pk
     echo
     if [[ "$pk" == "p" || "$pk" == "P" ]]; then
@@ -437,8 +425,7 @@ view_networks() {
       done <<< "$data"
     fi
 
-    # ── Prune ─────────────────────────────────────────────────────────────────
-    prune_section "${BOLD}[p]${RESET} unused custom networks   ENTER to skip"
+    prune_section "[p] unused custom networks   ENTER to skip"
     read -rsn1 pk
     echo
     if [[ "$pk" == "p" || "$pk" == "P" ]]; then
@@ -468,27 +455,26 @@ view_system_df() {
     docker system df
     echo
 
-    # ── Prune ─────────────────────────────────────────────────────────────────
-    prune_section "${BOLD}[p]${RESET} system prune   ${BOLD}[a]${RESET} + all unused images   ENTER to skip"
+    prune_section "[p] system prune   [a] + all unused images   ENTER to skip"
     read -rsn1 pk
     echo
     case "$pk" in
       p)
         printf "\n${BOLD}  docker system prune will remove:${RESET}\n"
-        printf "    • Stopped containers\n"
-        printf "    • Unused networks\n"
-        printf "    • Dangling images\n"
-        printf "    • Dangling build cache\n"
+        printf "    - Stopped containers\n"
+        printf "    - Unused networks\n"
+        printf "    - Dangling images\n"
+        printf "    - Dangling build cache\n"
         echo
         prune_confirm "system prune -f" docker system prune -f
         redisplay=true
         ;;
       a)
         printf "\n${BOLD}  docker system prune -a will remove:${RESET}\n"
-        printf "    • Stopped containers\n"
-        printf "    • Unused networks\n"
-        printf "    • ${RED}ALL unused images${RESET} (not just dangling)\n"
-        printf "    • Build cache\n"
+        printf "    - Stopped containers\n"
+        printf "    - Unused networks\n"
+        printf "    - ALL unused images (not just dangling)\n"
+        printf "    - Build cache\n"
         echo
         prune_confirm "system prune -a -f" docker system prune -a -f
         redisplay=true
