@@ -243,9 +243,8 @@ view_all_containers() {
       (( i++ ))
     done <<< "$data"
 
-    prune_section "[p] remove all stopped containers   ENTER to skip"
-    read -rsn1 pk
-    echo
+    printf "\n${YELLOW}  Select container [1-${total}]   [p] prune stopped   ENTER to skip: ${RESET}"
+    read -r pk
     if [[ "$pk" == "p" || "$pk" == "P" ]]; then
       local stopped
       stopped=$(docker ps -a --filter status=exited --filter status=dead \
@@ -549,6 +548,7 @@ if [[ -n "$1" ]]; then
 fi
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
+run_view view_running_containers
 while true; do
   show_menu
   read -rsn1 choice

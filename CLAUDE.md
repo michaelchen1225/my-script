@@ -16,6 +16,9 @@ my-script/
 ├── clean-disk/
 │   ├── clean.sh           ← Disk cleanup & analysis (interactive menu or direct args)
 │   └── README.md
+├── docker-dashboard/
+│   ├── docker-dashboard.sh ← Interactive Docker dashboard (containers, images, prune, actions)
+│   └── README.md
 ├── docker-info/
 │   ├── docker-info.sh     ← Read-only Docker inspection (containers, images, disk usage)
 │   └── README.md
@@ -42,6 +45,7 @@ my-script/
 | install-krew | `install-krew/krew-plug.sh` | `krew-plug.sh` |
 | let's encrypt | `let-encrypt/renew_cert.sh` | `renew_cert.sh` |
 | docker-info | `docker-info/docker-info.sh` | `docker-info.sh` |
+| docker-dashboard | `docker-dashboard/docker-dashboard.sh` | `docker-dashboard.sh` |
 
 ---
 
@@ -56,12 +60,13 @@ my-script/
 
 ## Rules
 
-### README.md must be updated for every new script
+### ALWAYS update README.md — for new scripts AND every change to existing scripts
 
-**update the README.md of the script, if the script has chnaged (e.g new features, new options, etc)**
+**Rule 1 — Script changed (new feature, new option, behavior change, bug fix):**
+Update `<folder>/README.md` to reflect the change before the task is done. No exceptions.
 
-
-**Whenever a new script is added to this repository, you MUST update the root `README.md`** to include a new section for it. The section must follow this format:
+**Rule 2 — New script added:**
+- Update the root `README.md` with a new section in this format:
 
 ```markdown
 ### [<display name>](./<folder-name>/)
@@ -75,6 +80,6 @@ cp <script-file> /usr/local/bin/<script-file>
 ```
 ```
 
-Each new script also needs its own `README.md` inside its subdirectory documenting: installation, features, options, usage examples, and any prerequisites.
+- Create `<folder>/README.md` documenting: installation, features, options, usage examples, prerequisites.
 
-Do not mark a new-script task as complete until both the root `README.md` and the subdirectory `README.md` have been written or updated.
+**Do not consider any task complete until the relevant README.md files are updated.**

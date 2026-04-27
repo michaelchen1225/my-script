@@ -1,6 +1,6 @@
 # docker-dashboard
 
-An interactive, color-coded Docker dashboard for the terminal. Displays clean, trimmed output from common Docker commands with auto-refresh support.
+An interactive, color-coded Docker dashboard for the terminal. Launches directly into the running containers view and provides clean, trimmed output with container actions and prune support.
 
 ## Installation
 
@@ -14,14 +14,15 @@ cp docker-dashboard.sh /usr/local/bin/docker-dashboard.sh
 
 ## Features
 
+- Launches with running containers view on startup
 - Interactive menu — pick a view, get formatted output, return to menu
 - ANSI color-coded container status (green = running, yellow = paused, red = exited)
 - Summary line on each view (counts of running, exited, dangling, etc.)
-- Trimmed columns with truncation — output stays within terminal width
+- Trimmed columns with `…` truncation — output stays within terminal width
 - Numbered rows — select a container by number to open its action sub-menu
 - Container actions — tail logs, follow logs, exec shell, live stats, inspect, stop, restart, remove
-- Prune support — every relevant view has a prune section that previews what will be removed before confirming
-- Auto-refresh mode — press a digit to loop the view every N seconds
+- Prune support — shows preview of what will be removed before confirming
+- Auto-refresh — press a digit to loop the view every N seconds, any key to stop
 - Direct invocation — skip the menu by passing a subcommand
 
 ## Menu Options
@@ -37,17 +38,42 @@ cp docker-dashboard.sh /usr/local/bin/docker-dashboard.sh
 | 7 | System disk usage | `docker system df` | system prune / system prune -a |
 | q | Quit | — | — |
 
-## Prune behaviour
+## Container Actions
 
-Each prune option shows a preview of exactly what will be removed before asking for confirmation:
+Select a container by number in view `[1]` or `[2]` to open its action sub-menu.
 
-- **Stopped containers** — lists each container name + status
-- **Dangling images** — lists each image with size and age
-- **All unused images** — lists all current images with a note that only unused ones are removed
-- **Unused volumes** — lists volume names
-- **Unused networks** — lists custom network names and drivers
-- **System prune** — bullet list of affected resource types
-- **System prune -a** — same but highlights that all unused images (not just dangling) are removed
+**Running container:**
+
+| Key | Action |
+|-----|--------|
+| `l` | Tail logs (last 100 lines) |
+| `f` | Follow logs |
+| `s` | Live stats |
+| `i` | Inspect (full JSON) |
+| `e` | Exec shell (bash → sh fallback) |
+| `t` | Stop (with confirmation) |
+| `r` | Restart (with confirmation) |
+| `b` | Back |
+
+**Stopped container:**
+
+| Key | Action |
+|-----|--------|
+| `l` | Tail logs |
+| `i` | Inspect |
+| `s` | Start |
+| `d` | Remove (with confirmation) |
+| `b` | Back |
+
+## Auto-refresh
+
+After any view loads, the bottom bar shows:
+
+```
+  [ENTER] back   [r] refresh   [1-9] auto-refresh every N seconds
+```
+
+Press a digit (e.g. `5`) to refresh every 5 seconds. Press any key to stop watch mode.
 
 ## Direct Invocation
 
@@ -61,20 +87,9 @@ docker-dashboard.sh networks  # networks
 docker-dashboard.sh df        # system disk usage
 ```
 
-## Auto-refresh
-
-After any view loads, you are prompted:
-
-```
-Auto-refresh? (y/N):
-Interval in seconds [5]:
-```
-
-Enter `y` and an interval to loop the view. Press `Ctrl+C` to stop.
-
 ## Requirements
 
 - Bash 4+
 - Docker CLI
-- `docker compose` plugin (for option 4)
+- `docker compose` plugin (for view 4)
 - `python3` (for parsing compose JSON output)
