@@ -193,7 +193,7 @@ view_running_containers() {
       (( i++ ))
     done <<< "$data"
 
-    printf "\n${YELLOW}  Enter container number [1-${count}] to manage   [r] refresh   ENTER for main menu: ${RESET}"
+    printf "\n${YELLOW}  Enter container number [1-${count}] for its info   [r] refresh   ENTER for main menu: ${RESET}"
     read -r sel
     case "$sel" in
       r|R)
