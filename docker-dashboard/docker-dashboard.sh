@@ -51,13 +51,37 @@ ask_refresh() {
 }
 
 color_status() {
-  local status="$1"
+  local status="$1" width="${2:-0}"
+  local padded
+  padded=$(printf "%-${width}s" "$status")
   case "${status,,}" in
-    *up*)      printf "${GREEN}%s${RESET}" "$status" ;;
-    *paused*)  printf "${YELLOW}%s${RESET}" "$status" ;;
-    *exited*|*dead*|*removing*) printf "${RED}%s${RESET}" "$status" ;;
-    *)         printf "${WHITE}%s${RESET}" "$status" ;;
+    *up*)      printf "${GREEN}%s${RESET}" "$padded" ;;
+    *paused*)  printf "${YELLOW}%s${RESET}" "$padded" ;;
+    *exited*|*dead*|*removing*) printf "${RED}%s${RESET}" "$padded" ;;
+    *)         printf "${WHITE}%s${RESET}" "$padded" ;;
   esac
+}
+
+# Truncate to max chars, pad with spaces so columns stay aligned
+trunc() {
+  local str="$1" max="$2"
+  if (( ${#str} > max )); then
+    printf "%s" "${str:0:$((max-1))}…"
+  else
+    printf "%-${max}s" "$str"
+  fi
+}
+
+# Keep only host->container port pairs, drop IPv6 duplicates and bare exposed ports
+shorten_ports() {
+  local ports="$1"
+  [[ -z "$ports" ]] && { printf "-"; return; }
+  local result
+  result=$(printf "%s" "$ports" \
+    | grep -oP '0\.0\.0\.0:\K\d+->\d+' \
+    | sort -u \
+    | paste -sd ',' -)
+  [[ -z "$result" ]] && printf "-" || printf "%s" "$result"
 }
 
 # ─── Views ────────────────────────────────────────────────────────────────────
@@ -76,12 +100,12 @@ view_running_containers() {
     count=$(echo "$data" | wc -l)
     summary "$count running container(s)"
     divider
-    printf "${BOLD}  %-25s %-35s %-20s %s${RESET}\n" "NAME" "IMAGE" "STATUS" "PORTS"
+    printf "${BOLD}  %-22s %-28s %-24s %s${RESET}\n" "NAME" "IMAGE" "STATUS" "PORTS"
     divider
     while IFS=$'\t' read -r name image status ports; do
-      printf "  %-25s %-35s " "$name" "$image"
-      color_status "$status"
-      printf " %s\n" "$ports"
+      printf "  %s %s " "$(trunc "$name" 22)" "$(trunc "$image" 28)"
+      color_status "$status" 24
+      printf " %s\n" "$(shorten_ports "$ports")"
     done <<< "$data"
   fi
 }
@@ -104,10 +128,10 @@ view_all_containers() {
 
     summary "Total: $total  |  Running: $running  |  Exited: $exited  |  Other: $other"
     divider
-    printf "${BOLD}  %-25s %-35s %s${RESET}\n" "NAME" "IMAGE" "STATUS"
+    printf "${BOLD}  %-22s %-28s %s${RESET}\n" "NAME" "IMAGE" "STATUS"
     divider
     while IFS=$'\t' read -r name image status; do
-      printf "  %-25s %-35s " "$name" "$image"
+      printf "  %s %s " "$(trunc "$name" 22)" "$(trunc "$image" 28)"
       color_status "$status"
       echo
     done <<< "$data"
@@ -136,7 +160,7 @@ view_images() {
     printf "${BOLD}  %-35s %-20s %-10s %s${RESET}\n" "REPOSITORY" "TAG" "SIZE" "CREATED"
     divider
     while IFS=$'\t' read -r repo tag size created; do
-      printf "  %-35s %-20s %-10s %s\n" "$repo" "$tag" "$size" "$created"
+      printf "  %s %s %-10s %s\n" "$(trunc "$repo" 35)" "$(trunc "$tag" 20)" "$size" "$created"
     done <<< "$data"
   fi
 
