@@ -86,6 +86,7 @@ container_actions() {
   [[ "${status,,}" == *"up"* ]] && is_running=true
 
   while true; do
+    clear
     printf "\n"
     printf "${CYAN}${BOLD}  ┌─ %s ${RESET}\n" "$name"
     printf "${CYAN}  │${RESET}  Image:  %s\n" "$image"
