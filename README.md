@@ -31,7 +31,7 @@ curl -O https://raw.githubusercontent.com/michaelchen1225/my-script/refs/heads/m
 
 chmod +x krew-plug.sh
 
-cp install-krew-plugins.sh /usr/local/bin/krew-plug.sh
+cp krew-plugins.sh /usr/local/bin/krew-plug.sh
 ```
 
 
